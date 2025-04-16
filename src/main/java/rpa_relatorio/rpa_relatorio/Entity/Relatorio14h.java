@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Data
-public class Relatorio09h {
+public class Relatorio14h {
 
     @Id
     private Long id;
