@@ -8,72 +8,75 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import rpa_relatorio.rpa_relatorio.Config.NotificacaoTeams;
 import rpa_relatorio.rpa_relatorio.Repository.RelatorioRepository09h;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
-public class RoboService {
+public class RelatorioService09h {
 
     @Autowired
-    public RelatorioRepository09h repository;
+    private NotificacaoTeams notificacaoTeams;
+
+    @Autowired
+    private RelatorioRepository09h repository;
 
     @Value("${report.output.directory}")
     public String outputDirectory;
 
-    private static final Logger logger = LoggerFactory.getLogger(RoboService.class);
+    private static final Logger logger = LoggerFactory.getLogger(RelatorioService09h.class);
 
-    @Scheduled(cron = "0 39 23 * * *")
+    @Scheduled(cron = "0 42 01 * * *")
     public void agendamentoSisfies09h() {
         processarRelatorio("SISFIES", "09h");
     }
 
-    @Scheduled(cron = "0 27 23 * * *")
+    @Scheduled(cron = "0 21 01 * * *")
     public void agendamentoSisfies15h() {
         processarRelatorio("SISFIES", "15h");
     }
 
-    @Scheduled(cron = "0 27 23 * * *")
+    @Scheduled(cron = "0 22 01 * * *")
     public void agendamentoSisfies17h() {
         processarRelatorio("SISFIES", "17h");
     }
 
-    @Scheduled(cron = "0 39 23 * * *")
+    @Scheduled(cron = "0 19 01 * * *")
     public void agendamentoSisprouni09h() {
         processarRelatorio("SISPROUNI", "09h");
     }
 
-    @Scheduled(cron = "0 28 23 * * *")
+    @Scheduled(cron = "0 21 01 * * *")
     public void agendamentoSisprouni15h() {
         processarRelatorio("SISPROUNI", "15h");
     }
 
-    @Scheduled(cron = "0 28 23 * * *")
+    @Scheduled(cron = "0 22 01 * * *")
     public void agendamentoSisprouni17h() {
         processarRelatorio("SISPROUNI", "17h");
     }
 
     public void processarRelatorio(String tipoRelatorio, String horaExecucao) {
-        logger.info("⏳ Iniciando processamento do relatório [{}] às {}", tipoRelatorio, horaExecucao);
+        logger.info("Iniciando processamento do relatório [{}] às {}", tipoRelatorio, horaExecucao);
         try {
             List<Object[]> resultados = gerarRelatorio(tipoRelatorio);
-            String nomeArquivo = nomearRelatorio(tipoRelatorio, horaExecucao);
+            String nomeArquivoXlsx = nomearRelatorio(tipoRelatorio, horaExecucao);
 
-            logger.info("📄 Gerando arquivo TXT: {}", nomeArquivo);
-            salvarArquivoTXT(resultados, nomeArquivo);
+            exportarParaExcel(resultados, nomeArquivoXlsx, tipoRelatorio);
 
-            logger.info("📊 Gerando arquivo Excel");
-            exportarParaExcel(nomeArquivo, tipoRelatorio, horaExecucao);
-
-            logger.info("✅ Relatório [{}] às {} finalizado com sucesso!", tipoRelatorio, horaExecucao);
+            logger.info("Relatório [{}] às {} finalizado com sucesso!", tipoRelatorio, horaExecucao);
+            notificacaoTeams.enviarNotificacao("Relatório " + tipoRelatorio + " gerado com sucesso às " + horaExecucao + ".");
 
         } catch (Exception e) {
-            logger.error("❌ Erro ao gerar relatório {} às {}: {}", tipoRelatorio, horaExecucao, e.getMessage(), e);
+            logger.error("Falha ao gerar o relatório {} às {}: {}", tipoRelatorio, horaExecucao, e.getMessage(), e);
+            notificacaoTeams.enviarNotificacao("Falha ao gerar o relatório " + tipoRelatorio + " às " + horaExecucao + ": " + e.getMessage());
         }
     }
 
@@ -89,7 +92,7 @@ public class RoboService {
 
     private String nomearRelatorio(String tipoRelatorio, String horaExecucao) {
         String data = LocalDate.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"));
-        String nomeArquivo = "Relatorio-Documentos-" + tipoRelatorio.toUpperCase() + data + "(bases-24.2)-" + horaExecucao + ".txt";
+        String nomeArquivo = "Relatorio-Documentos-" + tipoRelatorio.toUpperCase() + data + "(bases-24.2)-" + horaExecucao + ".xlsx";
 
         File pasta = new File(outputDirectory);
         if (!pasta.exists()) {
@@ -99,67 +102,79 @@ public class RoboService {
         return outputDirectory + File.separator + nomeArquivo;
     }
 
-    private void salvarArquivoTXT(List<Object[]> resultados, String nomeArquivo) throws IOException {
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(nomeArquivo), StandardCharsets.UTF_8))) {
-            for (Object[] linha : resultados) {
-                StringBuilder linhaTexto = new StringBuilder();
-                for (Object valor : linha) {
-                    linhaTexto.append(valor != null ? valor.toString() : "").append(";");
-                }
-                writer.write(linhaTexto.toString().replaceAll(";$", "")); // remove último ;
-                writer.newLine();
-            }
-        }
-    }
-
-    public void exportarParaExcel(String nomeArquivoTXT, String tipoRelatorio, String horaExecucao) throws Exception {
-        String data = LocalDate.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"));
-        String nomeArquivoXlsx = outputDirectory + File.separator +
-                "Relatorio-Documentos-" + tipoRelatorio.toUpperCase() + data + "(bases-24.2)-" + horaExecucao + ".xlsx";
-
-        try (
-                BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(nomeArquivoTXT), StandardCharsets.UTF_8));
-                Workbook workbook = new XSSFWorkbook()
-        ) {
+    private void exportarParaExcel(List<Object[]> dados, String caminhoArquivo, String tipoRelatorio) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet(tipoRelatorio.toUpperCase());
 
             List<String> cabecalho = getCabecalho(tipoRelatorio);
+
             Row headerRow = sheet.createRow(0);
+            CellStyle style = workbook.createCellStyle();
+            Font font = workbook.createFont();
+            font.setBold(true);
+            style.setFont(font);
+
             for (int i = 0; i < cabecalho.size(); i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(cabecalho.get(i));
-
-                CellStyle style = workbook.createCellStyle();
-                Font font = workbook.createFont();
-                font.setBold(true);
-                style.setFont(font);
                 cell.setCellStyle(style);
             }
 
-            String linha;
             int linhaIndex = 1;
-            while ((linha = reader.readLine()) != null) {
-                String[] valores = linha.split(";");
+            for (Object[] linha : dados) {
                 Row row = sheet.createRow(linhaIndex++);
-                for (int i = 0; i < valores.length; i++) {
+                for (int i = 0; i < linha.length; i++) {
                     Cell cell = row.createCell(i);
-                    cell.setCellValue(valores[i].trim());
+                    String valor = linha[i] != null ? linha[i].toString().trim() : "";
+
+                    // Conversão obrigatória para número e remoção dos dois últimos caracteres (se possível)
+                    if (i == 14 || i == 15 || i == 16) {
+                        try {
+                            // Se o valor for numérico
+                            if (valor.matches("\\d+")) {
+                                // Converte para número inteiro
+                                long numero = Long.parseLong(valor);
+
+                                // Remove os dois últimos dígitos
+                                numero = numero / 100;
+
+                                // Estabelece o estilo numérico
+                                CellStyle numberStyle = workbook.createCellStyle();
+                                DataFormat format = workbook.createDataFormat();
+                                numberStyle.setDataFormat(format.getFormat("0")); // Usar formato sem notação científica
+
+                                // Aplica o valor e estilo numérico
+                                cell.setCellValue(numero);
+                                cell.setCellStyle(numberStyle); // Aplica o estilo numérico
+                            } else {
+                                // Se não for um número válido, grava como texto
+                                cell.setCellValue(valor);
+                            }
+                        } catch (NumberFormatException e) {
+                            logger.warn("Valor inválido para número na linha {} coluna {}: {}", linhaIndex, i + 1, valor);
+                            cell.setCellValue(valor); // fallback: grava como texto
+                        }
+                    } else {
+                        cell.setCellValue(valor);
+                    }
                 }
+            }
+
+            // Ajusta a largura das colunas
+            for (int i = 0; i < cabecalho.size(); i++) {
+                sheet.autoSizeColumn(i);
             }
 
             for (int i = 0; i < cabecalho.size(); i++) {
                 sheet.autoSizeColumn(i);
             }
 
-            try (FileOutputStream fos = new FileOutputStream(nomeArquivoXlsx)) {
+            try (FileOutputStream fos = new FileOutputStream(caminhoArquivo)) {
                 workbook.write(fos);
             }
-
-        } catch (IOException e) {
-            logger.error("Erro ao exportar arquivo Excel: {}", e.getMessage(), e);
-            throw e;
         }
     }
+
     public List<String> getCabecalho(String tipo) {
         List<String> cabecalho = new ArrayList<>();
         if ("SISPROUNI".equalsIgnoreCase(tipo)) {
