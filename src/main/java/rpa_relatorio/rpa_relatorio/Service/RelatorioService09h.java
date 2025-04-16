@@ -33,7 +33,7 @@ public class RelatorioService09h {
 
     private static final Logger logger = LoggerFactory.getLogger(RelatorioService09h.class);
 
-    @Scheduled(cron = "0 42 01 * * *")
+    @Scheduled(cron = "0 23 11 * * *")
     public void agendamentoSisfies09h() {
         processarRelatorio("SISFIES", "09h");
     }
@@ -109,16 +109,17 @@ public class RelatorioService09h {
             List<String> cabecalho = getCabecalho(tipoRelatorio);
 
             Row headerRow = sheet.createRow(0);
-            CellStyle style = workbook.createCellStyle();
-            Font font = workbook.createFont();
-            font.setBold(true);
-            style.setFont(font);
+            CellStyle headerStyle = workbook.createCellStyle();
 
             for (int i = 0; i < cabecalho.size(); i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(cabecalho.get(i));
-                cell.setCellStyle(style);
+                cell.setCellStyle(headerStyle);
             }
+
+            CellStyle numberStyle = workbook.createCellStyle();
+            DataFormat format = workbook.createDataFormat();
+            numberStyle.setDataFormat(format.getFormat("0"));
 
             int linhaIndex = 1;
             for (Object[] linha : dados) {
@@ -127,50 +128,26 @@ public class RelatorioService09h {
                     Cell cell = row.createCell(i);
                     String valor = linha[i] != null ? linha[i].toString().trim() : "";
 
-                    // Conversão obrigatória para número e remoção dos dois últimos caracteres (se possível)
                     if (i == 14 || i == 15 || i == 16) {
                         try {
-                            // Se o valor for numérico
-                            if (valor.matches("\\d+")) {
-                                // Converte para número inteiro
-                                long numero = Long.parseLong(valor);
-
-                                // Remove os dois últimos dígitos
-                                numero = numero / 100;
-
-                                // Estabelece o estilo numérico
-                                CellStyle numberStyle = workbook.createCellStyle();
-                                DataFormat format = workbook.createDataFormat();
-                                numberStyle.setDataFormat(format.getFormat("0")); // Usar formato sem notação científica
-
-                                // Aplica o valor e estilo numérico
-                                cell.setCellValue(numero);
-                                cell.setCellStyle(numberStyle); // Aplica o estilo numérico
-                            } else {
-                                // Se não for um número válido, grava como texto
-                                cell.setCellValue(valor);
-                            }
-                        } catch (NumberFormatException e) {
-                            logger.warn("Valor inválido para número na linha {} coluna {}: {}", linhaIndex, i + 1, valor);
-                            cell.setCellValue(valor); // fallback: grava como texto
+                            long numero = Long.parseLong(valor);
+                            cell.setCellValue(numero);
+                            cell.setCellStyle(numberStyle);
+                        } catch (Exception e) {
+                            logger.warn("Erro ao processar número inteiro na linha {} coluna {}: {}", linhaIndex, i + 1, valor);
+                            cell.setCellValue(valor);
                         }
                     } else {
                         cell.setCellValue(valor);
                     }
                 }
             }
-
-            // Ajusta a largura das colunas
             for (int i = 0; i < cabecalho.size(); i++) {
                 sheet.autoSizeColumn(i);
             }
 
-            for (int i = 0; i < cabecalho.size(); i++) {
-                sheet.autoSizeColumn(i);
-            }
-
-            try (FileOutputStream fos = new FileOutputStream(caminhoArquivo)) {
-                workbook.write(fos);
+            try (FileOutputStream fileOut = new FileOutputStream(caminhoArquivo)) {
+                workbook.write(fileOut);
             }
         }
     }

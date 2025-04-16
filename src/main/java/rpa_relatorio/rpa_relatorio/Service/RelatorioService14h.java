@@ -32,7 +32,7 @@ public class RelatorioService14h {
 
     private static final Logger logger = LoggerFactory.getLogger(RelatorioService14h.class);
 
-    @Scheduled(cron = "0 50 00 * * *")
+    @Scheduled(cron = "0 44 11 * * *")
     public void agendamentoSisfies14h() {
         processarRelatorio("SISFIES", "14h");
     }
@@ -44,19 +44,15 @@ public class RelatorioService14h {
 
 
     public void processarRelatorio(String tipoRelatorio, String horaExecucao) {
-        logger.info("⏳ Iniciando processamento do relatório [{}] às {}", tipoRelatorio, horaExecucao);
+        logger.info("Iniciando processamento do relatório [{}] às {}", tipoRelatorio, horaExecucao);
         try {
             List<Object[]> resultados = gerarRelatorio(tipoRelatorio);
-            String nomeArquivo = nomearRelatorio(tipoRelatorio, horaExecucao);
+            String nomeArquivoXlsx = nomearRelatorio(tipoRelatorio, horaExecucao);
 
-            logger.info("Gerando arquivo TXT: {}", nomeArquivo);
-            salvarArquivoTXT(resultados, nomeArquivo);
-
-            logger.info("Gerando arquivo Excel");
-            exportarParaExcel(nomeArquivo, tipoRelatorio, horaExecucao);
+            exportarParaExcel(resultados, nomeArquivoXlsx, tipoRelatorio);
 
             logger.info("Relatório [{}] às {} finalizado com sucesso!", tipoRelatorio, horaExecucao);
-            notificacaoTeams.enviarNotificacao("Relatório "  +tipoRelatorio + " gerado com sucesso às " + horaExecucao + ".");
+            notificacaoTeams.enviarNotificacao("Relatório " + tipoRelatorio + " gerado com sucesso às " + horaExecucao + ".");
 
         } catch (Exception e) {
             logger.error("Falha ao gerar o relatório {} às {}: {}", tipoRelatorio, horaExecucao, e.getMessage(), e);
@@ -76,7 +72,7 @@ public class RelatorioService14h {
 
     private String nomearRelatorio(String tipoRelatorio, String horaExecucao) {
         String data = LocalDate.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"));
-        String nomeArquivo = "Relatorio-Documentos-" + tipoRelatorio.toUpperCase() + data + "(bases-24.2)-" + horaExecucao + ".txt";
+        String nomeArquivo = "Relatorio-Documentos-" + tipoRelatorio.toUpperCase() + data + "(bases-24.1)-" + horaExecucao + ".xlsx";
 
         File pasta = new File(outputDirectory);
         if (!pasta.exists()) {
@@ -86,65 +82,53 @@ public class RelatorioService14h {
         return outputDirectory + File.separator + nomeArquivo;
     }
 
-    private void salvarArquivoTXT(List<Object[]> resultados, String nomeArquivo) throws IOException {
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(nomeArquivo), StandardCharsets.UTF_8))) {
-            for (Object[] linha : resultados) {
-                StringBuilder linhaTexto = new StringBuilder();
-                for (Object valor : linha) {
-                    linhaTexto.append(valor != null ? valor.toString() : "").append(";");
-                }
-                writer.write(linhaTexto.toString().replaceAll(";$", ""));
-                writer.newLine();
-            }
-        }
-    }
-
-    public void exportarParaExcel(String nomeArquivoTXT, String tipoRelatorio, String horaExecucao) throws Exception {
-        String data = LocalDate.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"));
-        String nomeArquivoXlsx = outputDirectory + File.separator +
-                "Relatorio-Documentos-" + tipoRelatorio.toUpperCase() + data + "(bases-24.2)-" + horaExecucao + ".xlsx";
-
-        try (
-                BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(nomeArquivoTXT), StandardCharsets.UTF_8));
-                Workbook workbook = new XSSFWorkbook()
-        ) {
+    private void exportarParaExcel(List<Object[]> dados, String caminhoArquivo, String tipoRelatorio) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet(tipoRelatorio.toUpperCase());
 
             List<String> cabecalho = getCabecalho(tipoRelatorio);
+
             Row headerRow = sheet.createRow(0);
+            CellStyle headerStyle = workbook.createCellStyle();
+
             for (int i = 0; i < cabecalho.size(); i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(cabecalho.get(i));
-
-                CellStyle style = workbook.createCellStyle();
-                Font font = workbook.createFont();
-                font.setBold(true);
-                style.setFont(font);
-                cell.setCellStyle(style);
+                cell.setCellStyle(headerStyle);
             }
 
-            String linha;
+            CellStyle numberStyle = workbook.createCellStyle();
+            DataFormat format = workbook.createDataFormat();
+            numberStyle.setDataFormat(format.getFormat("0"));
+
             int linhaIndex = 1;
-            while ((linha = reader.readLine()) != null) {
-                String[] valores = linha.split(";");
+            for (Object[] linha : dados) {
                 Row row = sheet.createRow(linhaIndex++);
-                for (int i = 0; i < valores.length; i++) {
+                for (int i = 0; i < linha.length; i++) {
                     Cell cell = row.createCell(i);
-                    cell.setCellValue(valores[i].trim());
+                    String valor = linha[i] != null ? linha[i].toString().trim() : "";
+
+                    if (i == 14 || i == 15 || i == 16) {
+                        try {
+                            long numero = Long.parseLong(valor);
+                            cell.setCellValue(numero);
+                            cell.setCellStyle(numberStyle);
+                        } catch (Exception e) {
+                            logger.warn("Erro ao processar número inteiro na linha {} coluna {}: {}", linhaIndex, i + 1, valor);
+                            cell.setCellValue(valor);
+                        }
+                    } else {
+                        cell.setCellValue(valor);
+                    }
                 }
             }
-
             for (int i = 0; i < cabecalho.size(); i++) {
                 sheet.autoSizeColumn(i);
             }
 
-            try (FileOutputStream fos = new FileOutputStream(nomeArquivoXlsx)) {
-                workbook.write(fos);
+            try (FileOutputStream fileOut = new FileOutputStream(caminhoArquivo)) {
+                workbook.write(fileOut);
             }
-
-        } catch (IOException e) {
-            logger.error("Erro ao exportar arquivo Excel: {}", e.getMessage(), e);
-            throw e;
         }
     }
     public List<String> getCabecalho(String tipo) {

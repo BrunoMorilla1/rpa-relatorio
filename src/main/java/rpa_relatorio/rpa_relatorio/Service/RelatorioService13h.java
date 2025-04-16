@@ -1,5 +1,8 @@
 package rpa_relatorio.rpa_relatorio.Service;
 
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +36,7 @@ public class RelatorioService13h {
 
     private static final Logger logger = LoggerFactory.getLogger(RelatorioService13h.class);
 
-    @Scheduled(cron = "0 50 00 * * *")
+    @Scheduled(cron = "0 52 11 * * *")
     public void agendamentoAprovados13h() {
         processarRelatorio("APROVADOS", "13h");
     }
@@ -54,26 +57,16 @@ public class RelatorioService13h {
 
             List<Map<String, Object>> dadosConvertidos = converterParaMap(resultados, cabecalho);
 
-            logger.info("Total de registros antes do filtro: {}", dadosConvertidos.size());
-
-
-            dadosConvertidos.forEach(linha -> logger.info("Linha antes do filtro: {}", linha));
-
-
             dadosConvertidos.removeIf(linha -> {
                 Object tipoProcesso = linha.get(cabecalho.get(1));
                 return tipoProcesso != null && tipoProcesso.toString().equalsIgnoreCase("Isenção de Disciplina");
             });
 
-            logger.info("Total de registros após o filtro: {}", dadosConvertidos.size());
-
-            dadosConvertidos.forEach(linha -> logger.info("Linha após o filtro: {}", linha));
-
             logger.info("Gerando arquivo CSV: {}", nomeArquivo);
             salvarArquivoCsv(dadosConvertidos, tipoRelatorio, nomeArquivo);
 
             logger.info("Relatório [{}] às {} finalizado com sucesso!", tipoRelatorio, horaExecucao);
-            notificacaoTeams.enviarNotificacao("Relatório " +tipoRelatorio + " gerado com sucesso às " + horaExecucao + ".");
+            notificacaoTeams.enviarNotificacao("Relatório " + tipoRelatorio + " gerado com sucesso às " + horaExecucao + ".");
 
         } catch (Exception e) {
             logger.error("Falha ao gerar o relatório {} às {}: {}", tipoRelatorio, horaExecucao, e.getMessage(), e);
@@ -118,6 +111,7 @@ public class RelatorioService13h {
                     }
                     writer.write(String.join(";", valores));
                     writer.newLine();
+
                 }
                 logger.info("CSV gerado com sucesso em: {}", caminhoArquivo);
             } else {
@@ -146,6 +140,7 @@ public class RelatorioService13h {
             }
             listaMapeada.add(mapa);
         }
+
 
         return listaMapeada;
     }
@@ -184,12 +179,5 @@ public class RelatorioService13h {
             cabecalho.add("Situação  ");
         }
         return cabecalho;
-    }
-    private List<String> ajustarCabecalhoVisual(List<String> cabecalhoOriginal) {
-        List<String> ajustado = new ArrayList<>();
-        for (String coluna : cabecalhoOriginal) {
-            ajustado.add(coluna + "          "); // 5 espaços
-        }
-        return ajustado;
     }
 }
